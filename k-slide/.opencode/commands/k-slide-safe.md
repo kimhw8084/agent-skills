@@ -1,6 +1,6 @@
 ---
 description: Safe fallback mode for fragile tool-call environments.
-agent: k-slide-orchestrator
+agent: k-slide
 subtask: false
 ---
 
@@ -13,7 +13,7 @@ Do not use Task/subagents.
 First, ensure setup exists. Your first tool action should be to run this with the bash tool unless a valid RUN_DIR is already available:
 
 ```bash
-.opencode/skills/korean-slide-comprehension/bin/prepare_run.sh safe $ARGUMENTS
+.opencode/skills/k-slide/bin/prepare_run.sh safe $ARGUMENTS
 ```
 
 After setup succeeds, use the printed `RUN_DIR` exactly. If setup fails or bash is denied, do not analyze images. Print friendly manual setup instructions and end `FAILED`.

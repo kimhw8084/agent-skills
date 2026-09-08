@@ -6,7 +6,7 @@ This is the centralized home for reusable agent skill projects developed in this
 
 | Project | Purpose | Baseline | Status |
 | --- | --- | --- | --- |
-| [`korean-slide-gemma-opencode`](korean-slide-gemma-opencode/) | Convert Korean or Korean+English slide images into faithful English-native comprehension reports for zero-Korean readers | K-Slide v6 / Gemma 4 31B | Active development |
+| [`k-slide`](k-slide/) | Convert Korean or Korean+English slide images into faithful English-native comprehension reports for zero-Korean readers | K-Slide v6 / Gemma 4 31B | Active development |
 
 ## Standard child-project shape
 

@@ -1,5 +1,5 @@
 ---
-name: korean-slide-comprehension
+name: k-slide
 description: Understand Korean/Korean+English slide images and generate English-native reports with faithful table reconstruction, item-count preservation, verification, and recovery behavior.
 ---
 

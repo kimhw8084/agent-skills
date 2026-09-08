@@ -1,10 +1,10 @@
 ---
-description: Strict single-agent Korean slide comprehension with detailed table/item handling.
-agent: k-slide-orchestrator
+description: Smart single-agent Korean/Korean+English slide comprehension. Scans .k-slide-input when no args are supplied.
+agent: k-slide
 subtask: false
 ---
 
-You are running K-Slide v6 in `strict` mode.
+You are running K-Slide v6 in `smart` mode.
 
 User arguments: `$ARGUMENTS`
 
@@ -13,7 +13,7 @@ Do not use Task/subagents.
 First, ensure setup exists. Your first tool action should be to run this with the bash tool unless a valid RUN_DIR is already available:
 
 ```bash
-.opencode/skills/korean-slide-comprehension/bin/prepare_run.sh strict $ARGUMENTS
+.opencode/skills/k-slide/bin/prepare_run.sh smart $ARGUMENTS
 ```
 
 After setup succeeds, use the printed `RUN_DIR` exactly. If setup fails or bash is denied, do not analyze images. Print friendly manual setup instructions and end `FAILED`.

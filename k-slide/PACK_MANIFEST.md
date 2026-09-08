@@ -4,7 +4,7 @@ Version: v6 single-agent stable core
 
 Changes from v5:
 - `/k-slide` remains the main command.
-- Default workflow uses only `k-slide-orchestrator`.
+- Default workflow uses only the `k-slide` agent.
 - Task/subagent delegation is denied by default.
 - Orchestrator has `bash: ask` for setup fallback.
 - Valid skill frontmatter included.

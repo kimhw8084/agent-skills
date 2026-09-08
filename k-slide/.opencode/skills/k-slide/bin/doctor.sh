@@ -3,10 +3,10 @@ set -euo pipefail
 fail=0
 check(){ if eval "$2"; then echo "[OK] $1"; else echo "[FAIL] $1"; fail=1; fi }
 check "main command" "test -f .opencode/commands/k-slide.md"
-check "orchestrator" "test -f .opencode/agents/k-slide-orchestrator.md"
-check "skill file" "test -f .opencode/skills/korean-slide-comprehension/SKILL.md"
-check "skill frontmatter" "grep -q '^name: korean-slide-comprehension' .opencode/skills/korean-slide-comprehension/SKILL.md"
-check "prepare script executable" "test -x .opencode/skills/korean-slide-comprehension/bin/prepare_run.sh"
+check "agent" "test -f .opencode/agents/k-slide.md"
+check "skill file" "test -f .opencode/skills/k-slide/SKILL.md"
+check "skill frontmatter" "grep -q '^name: k-slide' .opencode/skills/k-slide/SKILL.md"
+check "prepare script executable" "test -x .opencode/skills/k-slide/bin/prepare_run.sh"
 mkdir -p .k-slide-input .k-slide-runs
 check "input folder" "test -d .k-slide-input"
 check "run folder" "test -d .k-slide-runs"

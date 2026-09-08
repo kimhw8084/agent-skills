@@ -1,6 +1,6 @@
 ---
 description: Show K-Slide v6 quick help.
-agent: k-slide-orchestrator
+agent: k-slide
 subtask: false
 ---
 

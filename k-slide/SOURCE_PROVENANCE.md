@@ -7,7 +7,7 @@
 - Model target: Gemma 4 31B through OpenCode
 - Source archive (workspace-relative): `ai/cli-tools/kor-eng/korean_slide_gemma_opencode_pack_v6.zip`
 - SHA-256: `bc7ff0bd0a76fdf781f38bf19c82f545ae58a0db226baf31af554556f93fac00`
-- Workspace location: `projects/agent-skills/korean-slide-gemma-opencode`
+- Workspace location: `projects/agent-skills/k-slide`
 - Extracted on: 2026-09-08
 
 ## Why v6 is the active baseline

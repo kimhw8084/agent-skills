@@ -5,8 +5,7 @@ v6 is the **single-agent stable core** release.
 ## Quick start
 
 ```bash
-unzip korean_slide_gemma_opencode_pack_v6.zip
-cd korean_slide_gemma_opencode_pack_v6
+cd k-slide
 ./scripts/install_project.sh /path/to/your/project
 ./scripts/verify_install.sh /path/to/your/project
 cd /path/to/your/project
@@ -71,7 +70,7 @@ If `RUN_COMPLETE.md` is missing, the run is not complete.
 - If `/k-slide` does not create a run folder, approve the bash setup command or run manually:
 
 ```bash
-.opencode/skills/korean-slide-comprehension/bin/prepare_run.sh smart imgs/slide.png
+.opencode/skills/k-slide/bin/prepare_run.sh smart imgs/slide.png
 ```
 
 Then:
@@ -86,7 +85,7 @@ If the skill folder exists but OpenCode says skill is missing, check that `SKILL
 
 ```text
 ---
-name: korean-slide-comprehension
+name: k-slide
 description: ...
 ---
 ```

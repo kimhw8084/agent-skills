@@ -1,6 +1,6 @@
 ---
 description: Generate detailed audit artifacts for an existing K-Slide run.
-agent: k-slide-orchestrator
+agent: k-slide
 subtask: false
 ---
 

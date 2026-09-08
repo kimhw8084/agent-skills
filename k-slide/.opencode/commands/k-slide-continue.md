@@ -1,6 +1,6 @@
 ---
 description: Continue a K-Slide v6 run from an existing run folder.
-agent: k-slide-orchestrator
+agent: k-slide
 subtask: false
 ---
 
