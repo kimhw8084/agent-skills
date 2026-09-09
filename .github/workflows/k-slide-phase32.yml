@@ -1,4 +1,4 @@
-name: K-Slide Phase 3.3 certification harness
+name: K-Slide Phase 3.4 runtime contract and OCR harness
 
 on:
   push:
@@ -61,3 +61,15 @@ jobs:
         run: docker build -f evals/heavy/Dockerfile -t k-slide-heavy .
       - name: Run heavy self-test
         run: docker run --rm k-slide-heavy
+      - name: Run representative heavy engine subset with production OCR routing
+        run: |
+          docker run --rm --entrypoint python k-slide-heavy -m evals.run_engine_eval \
+            --output /tmp/k-slide-heavy-engine-subset \
+            --split development --limit 5 --formats png pdf pptx --ocr-provider paddle
+      - name: Publish heavy evaluation summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: k-slide-heavy-summary
+          path: |
+            /tmp/k-slide-heavy-engine-subset/summary.json
+            /tmp/k-slide-heavy-engine-subset/EVAL_REPORT.md
