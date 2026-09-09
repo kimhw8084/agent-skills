@@ -1,4 +1,4 @@
-name: K-Slide Phase 3.4 runtime contract and OCR harness
+name: K-Slide Phase 3.5 execution isolation and heavy runtime
 
 on:
   push:
@@ -60,16 +60,29 @@ jobs:
       - name: Build heavy evaluation image
         run: docker build -f evals/heavy/Dockerfile -t k-slide-heavy .
       - name: Run heavy self-test
-        run: docker run --rm k-slide-heavy
+        run: |
+          mkdir -p "${RUNNER_TEMP}/k-slide-heavy-doctor"
+          docker run --rm --network none \
+            -v "${RUNNER_TEMP}/k-slide-heavy-doctor:/out" \
+            k-slide-heavy --required --networkless \
+            | tee "${RUNNER_TEMP}/k-slide-heavy-doctor/doctor.json"
       - name: Run representative heavy engine subset with production OCR routing
         run: |
-          docker run --rm --entrypoint python k-slide-heavy -m evals.run_engine_eval \
-            --output /tmp/k-slide-heavy-engine-subset \
-            --split development --limit 5 --formats png pdf pptx --ocr-provider paddle
+          mkdir -p "${RUNNER_TEMP}/k-slide-heavy-engine-subset"
+          docker run --rm --network none \
+            -v "${RUNNER_TEMP}/k-slide-heavy-engine-subset:/out" \
+            --entrypoint python k-slide-heavy -m evals.run_engine_eval \
+            --output /out \
+            --split development \
+            --scenario-ids scenario-0002 scenario-0017 scenario-0031 scenario-0051 scenario-0066 \
+            --formats png pdf pptx \
+            --ocr-provider paddle \
+            --fail-on-critical
       - name: Publish heavy evaluation summary
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: k-slide-heavy-summary
           path: |
-            /tmp/k-slide-heavy-engine-subset/summary.json
-            /tmp/k-slide-heavy-engine-subset/EVAL_REPORT.md
+            ${{ runner.temp }}/k-slide-heavy-doctor/
+            ${{ runner.temp }}/k-slide-heavy-engine-subset/
