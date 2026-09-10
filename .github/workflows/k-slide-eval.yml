@@ -23,9 +23,9 @@ jobs:
       - name: Generate all default-format corpus cases
         run: PYTHONPATH=src python -m evals.generate_corpus --output "$RUNNER_TEMP/k-slide-corpus" --formats png jpg webp pdf pptx
       - name: Run development engine evidence suite
-        run: PYTHONPATH=src python -m evals.run_engine_eval --output "$RUNNER_TEMP/k-slide-engine-dev" --split development --formats png pdf pptx
+        run: PYTHONPATH=src python -m evals.run_engine_eval --output "$RUNNER_TEMP/k-slide-engine-dev" --split development --formats png pdf pptx --candidate-profile evals/production-candidate.yaml
       - name: Run validation engine evidence suite
-        run: PYTHONPATH=src python -m evals.run_engine_eval --output "$RUNNER_TEMP/k-slide-engine-validation" --split validation --formats png pdf pptx
+        run: PYTHONPATH=src python -m evals.run_engine_eval --output "$RUNNER_TEMP/k-slide-engine-validation" --split validation --formats png pdf pptx --candidate-profile evals/production-candidate.yaml
       - name: Upload evaluation summaries
         uses: actions/upload-artifact@v4
         with:

@@ -39,4 +39,4 @@ jobs:
           ./scripts/install_project.sh "$RUNNER_TEMP/k-slide-host"
           ./scripts/verify_install.sh "$RUNNER_TEMP/k-slide-host"
       - name: Synthetic artifact evaluation smoke
-        run: PYTHONPATH=src python -m evals.run_engine_eval --output "$RUNNER_TEMP/k-slide-eval" --split development --limit 2 --formats png pdf
+        run: PYTHONPATH=src python -m evals.run_engine_eval --output "$RUNNER_TEMP/k-slide-eval" --split development --limit 2 --formats png pdf --candidate-profile evals/production-candidate.yaml

@@ -59,6 +59,24 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build heavy evaluation image
         run: docker build -f evals/heavy/Dockerfile -t k-slide-heavy .
+      - name: Prepare explicit heavy candidate specification
+        run: |
+          PYTHONPATH=src python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from k_slide.certification import canonical_behavior_configuration, load_candidate_spec
+
+          candidate = load_candidate_spec(Path("evals/production-candidate.yaml"), root=Path.cwd())
+          candidate["subject_git_sha"] = os.environ["GITHUB_SHA"]
+          candidate["ocr_provider"] = "paddle"
+          behavior = dict(candidate.get("behavior_configuration") or {})
+          behavior["ocr_provider"] = "paddle"
+          candidate["behavior_configuration"] = canonical_behavior_configuration(behavior)
+          output = Path(os.environ["RUNNER_TEMP"]) / "k-slide-heavy-candidate.json"
+          output.write_text(json.dumps(candidate, sort_keys=True) + "\n", encoding="utf-8")
+          PY
       - name: Run heavy self-test
         run: |
           mkdir -p "${RUNNER_TEMP}/k-slide-heavy-doctor"
@@ -71,8 +89,11 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/k-slide-heavy-engine-subset"
           docker run --rm --network none \
             -v "${RUNNER_TEMP}/k-slide-heavy-engine-subset:/out" \
+            -v "${RUNNER_TEMP}/k-slide-heavy-candidate.json:/candidate.json:ro" \
             --entrypoint python k-slide-heavy -m evals.run_engine_eval \
             --output /out \
+            --candidate-profile /candidate.json \
+            --subject-sha "${GITHUB_SHA}" \
             --split development \
             --scenario-ids scenario-0002 scenario-0017 scenario-0031 scenario-0051 scenario-0066 \
             --formats png pdf pptx \

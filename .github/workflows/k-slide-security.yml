@@ -79,19 +79,22 @@ jobs:
           sys.path.insert(0, "src")
           sys.path.insert(0, ".")
           from evals.scenarios import DATASET_VERSION, split_manifest
-          from k_slide.certification import build_deployment_factors, deployment_fingerprint
+          from k_slide.certification import candidate_deployment_fingerprint, canonical_candidate_factors, load_candidate_spec
           from k_slide.model_policy import load_model_policy
-          from k_slide.runtime import discover_runtime
 
           out = Path(os.environ["RUNNER_TEMP"]) / "k-slide-security" / "identity.json"
+          candidate_path = Path(os.environ["RUNNER_TEMP"]) / "k-slide-security" / "candidate.json"
           split = split_manifest()
-          manifest = {
+          candidate = load_candidate_spec(Path("evals/production-candidate.yaml"), root=Path.cwd())
+          candidate["subject_git_sha"] = os.environ.get("GITHUB_SHA", "UNSET")
+          candidate["model_policy"] = load_model_policy(Path.cwd()).as_dict()
+          candidate["corpus_identity"] = {
               "version": DATASET_VERSION,
               "corpus_fingerprint": split["corpus_fingerprint"],
               "held_out_fingerprint": split["held_out_fingerprint"],
           }
-          factors = build_deployment_factors(Path.cwd(), subject_git_sha=os.environ.get("GITHUB_SHA", "UNSET"), runtime=discover_runtime(), model_policy=load_model_policy(Path.cwd()), corpus=manifest)
-          summary = {"subject_git_sha": os.environ.get("GITHUB_SHA", "UNSET"), "deployment_fingerprint": deployment_fingerprint(factors)}
+          candidate_path.write_text(json.dumps(candidate, sort_keys=True) + "\n", encoding="utf-8")
+          summary = {"subject_git_sha": candidate["subject_git_sha"], "deployment_fingerprint": candidate_deployment_fingerprint(candidate), "candidate_spec": canonical_candidate_factors(candidate), "candidate_profile": str(candidate_path)}
           out.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
           PY
       - name: Derive security evidence and enforce result
@@ -102,6 +105,7 @@ jobs:
           deployment=$(python -c 'import json,os; print(json.load(open(os.path.join(os.environ["RUNNER_TEMP"],"k-slide-security","identity.json")))["deployment_fingerprint"])')
           PYTHONPATH=src:. python -m k_slide.evidence_adapters security \
             --output "$RUNNER_TEMP/k-slide-security/security.evidence.json" \
+            --candidate-profile "$RUNNER_TEMP/k-slide-security/candidate.json" \
             --subject-sha "$subject" \
             --deployment-fingerprint "$deployment" \
             --source pip_audit="$RUNNER_TEMP/k-slide-security/pip-audit.json" \

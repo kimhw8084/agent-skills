@@ -40,11 +40,16 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/k-slide-release"
           CERTIFICATION_FLAG=""
+          CERTIFIED_PROFILE_FLAG=""
           if [ "$RELEASE_STATE" = "PRODUCTION_CERTIFIED" ]; then CERTIFICATION_FLAG="--require-certified"; fi
+          if [ "$RELEASE_STATE" = "PRODUCTION_CERTIFIED" ]; then CERTIFIED_PROFILE_FLAG="--certified-profile-output $RUNNER_TEMP/k-slide-release/production-profile.json"; fi
           PYTHONPATH=src python -m evals.release \
             --root . \
             --requested-state "$RELEASE_STATE" \
+            --candidate-profile evals/production-candidate.yaml \
+            --subject-sha "$GITHUB_SHA" \
             $CERTIFICATION_FLAG \
+            $CERTIFIED_PROFILE_FLAG \
             --output "$RUNNER_TEMP/k-slide-release/PRODUCTION_RELEASE_MANIFEST.json" \
             --sbom "$RUNNER_TEMP/k-slide-release/SBOM.json"
           sha256sum "$RUNNER_TEMP/k-slide-release/PRODUCTION_RELEASE_MANIFEST.json" "$RUNNER_TEMP/k-slide-release/SBOM.json" > "$RUNNER_TEMP/k-slide-release/SHA256SUMS"
