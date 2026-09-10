@@ -23,16 +23,41 @@ jobs:
           python-version: "3.11"
       - name: Install pinned security tools
         run: python -m pip install --disable-pip-version-check pip-audit==2.9.0 semgrep==1.89.0
+      - name: Prepare sanitized scanner directory
+        run: mkdir -p "$RUNNER_TEMP/k-slide-security"
       - name: Dependency audit
-        run: pip-audit --strict --format json --output "$RUNNER_TEMP/k-slide-pip-audit.json"
+        run: |
+          set +e
+          pip-audit --strict --format json --output "$RUNNER_TEMP/k-slide-security/pip-audit.json"
+          code=$?
+          printf '{"pip_audit":%s,"gitleaks":null,"semgrep":null}\n' "$code" > "$RUNNER_TEMP/k-slide-security/scanner-exits.partial.json"
+          exit 0
       - name: Secret scan
-        run: docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" zricethezav/gitleaks:v8.24.2 detect --source=/repo --no-banner --redact
+        run: |
+          set +e
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" -v "$RUNNER_TEMP/k-slide-security:/reports" zricethezav/gitleaks:v8.24.2 detect --source=/repo --no-banner --redact --report-format json --report-path /reports/gitleaks.json
+          code=$?
+          test -f "$RUNNER_TEMP/k-slide-security/gitleaks.json" || printf '[]\n' > "$RUNNER_TEMP/k-slide-security/gitleaks.json"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path(__import__('os').environ['RUNNER_TEMP']) / 'k-slide-security' / 'scanner-exits.partial.json'
+          value = json.loads(p.read_text())
+          value['gitleaks'] = int(__import__('os').environ.get('GITLEAKS_EXIT', '0'))
+          p.write_text(json.dumps(value) + '\n')
+          PY
+          sed -i "s/\"gitleaks\":0/\"gitleaks\":$code/" "$RUNNER_TEMP/k-slide-security/scanner-exits.partial.json"
+          exit 0
       - name: Static security scan
-        run: semgrep --config p/python --error --json --output "$RUNNER_TEMP/k-slide-semgrep.json" src evals
-      - name: Write sanitized security summary
+        run: |
+          set +e
+          semgrep --config p/python --error --json --output "$RUNNER_TEMP/k-slide-security/semgrep.json" src evals
+          code=$?
+          sed -i "s/\"semgrep\":null/\"semgrep\":$code/" "$RUNNER_TEMP/k-slide-security/scanner-exits.partial.json"
+          cp "$RUNNER_TEMP/k-slide-security/scanner-exits.partial.json" "$RUNNER_TEMP/k-slide-security/scanner-exits.json"
+          exit 0
+      - name: Compute deployment identity
         if: always()
-        env:
-          JOB_STATUS: ${{ job.status }}
         run: |
           python - <<'PY'
           import json
@@ -47,7 +72,7 @@ jobs:
           from k_slide.model_policy import load_model_policy
           from k_slide.runtime import discover_runtime
 
-          out = Path(os.environ["RUNNER_TEMP"]) / "k-slide-security-summary.json"
+          out = Path(os.environ["RUNNER_TEMP"]) / "k-slide-security" / "identity.json"
           split = split_manifest()
           manifest = {
               "version": DATASET_VERSION,
@@ -55,21 +80,29 @@ jobs:
               "held_out_fingerprint": split["held_out_fingerprint"],
           }
           factors = build_deployment_factors(Path.cwd(), subject_git_sha=os.environ.get("GITHUB_SHA", "UNSET"), runtime=discover_runtime(), model_policy=load_model_policy(Path.cwd()), corpus=manifest)
-          summary = {
-              "schema_version": "1.0",
-              "subject_git_sha": os.environ.get("GITHUB_SHA", "UNSET"),
-              "deployment_fingerprint": deployment_fingerprint(factors),
-              "tools": {"pip_audit": "2.9.0", "gitleaks": "8.24.2", "semgrep": "1.89.0"},
-              "status": "PASS" if os.environ.get("JOB_STATUS") == "success" else "FAIL",
-          }
+          summary = {"subject_git_sha": os.environ.get("GITHUB_SHA", "UNSET"), "deployment_fingerprint": deployment_fingerprint(factors)}
           out.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
           PY
+      - name: Derive security evidence and enforce result
+        if: always()
+        run: |
+          set +e
+          subject=$(python -c 'import json,os; print(json.load(open(os.path.join(os.environ["RUNNER_TEMP"],"k-slide-security","identity.json")))["subject_git_sha"])')
+          deployment=$(python -c 'import json,os; print(json.load(open(os.path.join(os.environ["RUNNER_TEMP"],"k-slide-security","identity.json")))["deployment_fingerprint"])')
+          PYTHONPATH=src:. python -m k_slide.evidence_adapters security \
+            --output "$RUNNER_TEMP/k-slide-security/security.evidence.json" \
+            --subject-sha "$subject" \
+            --deployment-fingerprint "$deployment" \
+            --source pip_audit="$RUNNER_TEMP/k-slide-security/pip-audit.json" \
+            --source gitleaks="$RUNNER_TEMP/k-slide-security/gitleaks.json" \
+            --source semgrep="$RUNNER_TEMP/k-slide-security/semgrep.json" \
+            --source scanner_exits="$RUNNER_TEMP/k-slide-security/scanner-exits.json"
+          code=$?
+          exit $code
       - name: Upload sanitized security evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: k-slide-security-evidence
           path: |
-            ${{ runner.temp }}/k-slide-security-summary.json
-            ${{ runner.temp }}/k-slide-pip-audit.json
-            ${{ runner.temp }}/k-slide-semgrep.json
+            ${{ runner.temp }}/k-slide-security/
