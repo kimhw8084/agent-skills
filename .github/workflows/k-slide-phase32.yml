@@ -10,6 +10,11 @@ on:
       - "k-slide/**"
       - ".github/workflows/k-slide-phase32.yml"
   workflow_dispatch:
+    inputs:
+      production_dependency_lock:
+        description: "Private exact production lock for a certifying heavy image"
+        required: false
+        type: string
 
 jobs:
   fast:
@@ -57,8 +62,41 @@ jobs:
         working-directory: k-slide
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Freeze exact production dependency subject
+        env:
+          KSLIDE_PRODUCTION_LOCK: ${{ inputs.production_dependency_lock || '' }}
+        run: |
+          python -m venv "$RUNNER_TEMP/k-slide-production-env"
+          lock_input="$KSLIDE_PRODUCTION_LOCK"
+          if [ -n "$lock_input" ]; then
+            test -f "$lock_input"
+            "$RUNNER_TEMP/k-slide-production-env/bin/python" -m pip install --disable-pip-version-check --no-input -r "$lock_input"
+          else
+            "$RUNNER_TEMP/k-slide-production-env/bin/python" -m pip install --disable-pip-version-check --no-input -r constraints-production.txt
+          fi
+          freeze_args=(--inventory-output .k-slide-config/production-dependency-inventory.json --lock-output .k-slide-config/production-requirements.lock)
+          if [ -n "$lock_input" ]; then freeze_args+=(--lock-input "$lock_input"); fi
+          PYTHONPATH=src:. "$RUNNER_TEMP/k-slide-production-env/bin/python" -m evals.freeze_production_dependencies "${freeze_args[@]}"
       - name: Build heavy evaluation image
-        run: docker build -f evals/heavy/Dockerfile -t k-slide-heavy .
+        run: docker build --build-arg PRODUCTION_LOCK=.k-slide-config/production-requirements.lock -f evals/heavy/Dockerfile -t k-slide-heavy .
+      - name: Verify heavy image dependency identity
+        run: |
+          docker run --rm --entrypoint python k-slide-heavy -c 'import json; from k_slide.certification import installed_dependency_inventory; print(json.dumps(installed_dependency_inventory(), sort_keys=True))' > "$RUNNER_TEMP/k-slide-heavy-image-inventory.json"
+          PYTHONPATH=src:. python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from k_slide.certification import load_dependency_inventory
+
+          expected = load_dependency_inventory(Path(".k-slide-config/production-dependency-inventory.json"))
+          actual = json.loads((Path(os.environ["RUNNER_TEMP"]) / "k-slide-heavy-image-inventory.json").read_text(encoding="utf-8"))
+          if actual != expected:
+              raise SystemExit(json.dumps({"expected": expected, "actual": actual}, sort_keys=True))
+          PY
       - name: Prepare explicit heavy candidate specification
         run: |
           PYTHONPATH=src python - <<'PY'
