@@ -3,8 +3,8 @@ name: K-Slide manual release evidence
 on:
   workflow_dispatch:
     inputs:
-      release_state:
-        description: "Evidence-backed release state"
+      requested_state:
+        description: "Maximum release state to derive from validated evidence"
         required: true
         default: DEVELOPMENT
         type: choice
@@ -36,14 +36,14 @@ jobs:
         run: python -m compileall -q src evals tests
       - name: Generate release manifest and SBOM
         env:
-          RELEASE_STATE: ${{ inputs.release_state }}
+          RELEASE_STATE: ${{ inputs.requested_state }}
         run: |
           mkdir -p "$RUNNER_TEMP/k-slide-release"
           CERTIFICATION_FLAG=""
           if [ "$RELEASE_STATE" = "PRODUCTION_CERTIFIED" ]; then CERTIFICATION_FLAG="--require-certified"; fi
           PYTHONPATH=src python -m evals.release \
             --root . \
-            --state "$RELEASE_STATE" \
+            --requested-state "$RELEASE_STATE" \
             $CERTIFICATION_FLAG \
             --output "$RUNNER_TEMP/k-slide-release/PRODUCTION_RELEASE_MANIFEST.json" \
             --sbom "$RUNNER_TEMP/k-slide-release/SBOM.json"
