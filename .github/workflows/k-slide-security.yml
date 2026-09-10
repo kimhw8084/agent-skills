@@ -27,10 +27,28 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/k-slide-security"
           cp --preserve=mode security/semgrep-production.yml "$RUNNER_TEMP/k-slide-security/semgrep-production.yml"
+      - name: Materialize exact production dependency subject
+        run: |
+          python -m venv "$RUNNER_TEMP/k-slide-security/production-env"
+          "$RUNNER_TEMP/k-slide-security/production-env/bin/python" -m pip install --disable-pip-version-check --no-input -r constraints-production.txt
+          "$RUNNER_TEMP/k-slide-security/production-env/bin/python" -m pip list --format=json > "$RUNNER_TEMP/k-slide-security/production-packages.json"
+          PYTHONPATH=src:. python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          from k_slide.certification import canonical_dependency_inventory
+
+          security_root = Path(os.environ["RUNNER_TEMP"]) / "k-slide-security"
+          packages = json.loads((security_root / "production-packages.json").read_text(encoding="utf-8"))
+          inventory = canonical_dependency_inventory(packages)
+          config = Path(".k-slide-config")
+          config.mkdir(parents=True, exist_ok=True)
+          (config / "production-dependency-inventory.json").write_text(json.dumps(inventory, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+          PY
       - name: Dependency audit
         run: |
           set +e
-          pip-audit --strict --format json --output "$RUNNER_TEMP/k-slide-security/pip-audit.json" -r constraints-production.txt
+          pip-audit --strict --format json --output "$RUNNER_TEMP/k-slide-security/pip-audit.json" --path "$RUNNER_TEMP/k-slide-security/production-env"
           code=$?
           printf '%s\n' "$code" > "$RUNNER_TEMP/k-slide-security/pip-audit.exit"
           exit 0
@@ -82,7 +100,8 @@ jobs:
           sys.path.insert(0, "src")
           sys.path.insert(0, ".")
           from evals.scenarios import DATASET_VERSION, split_manifest
-          from k_slide.certification import candidate_completeness, candidate_deployment_fingerprint, canonical_candidate_factors, load_candidate_spec, resolve_candidate_spec, sha256_file
+          from evals.release import build_production_sbom
+          from k_slide.certification import candidate_completeness, candidate_deployment_fingerprint, canonical_candidate_factors, dependency_inventory_hash, load_candidate_spec, load_dependency_inventory, resolve_candidate_spec, sha256_file
           from k_slide.model_policy import load_model_policy
 
           out = Path(os.environ["RUNNER_TEMP"]) / "k-slide-security" / "identity.json"
@@ -96,6 +115,11 @@ jobs:
               "held_out_fingerprint": split["held_out_fingerprint"],
           })
           candidate_path.write_text(json.dumps(candidate, sort_keys=True) + "\n", encoding="utf-8")
+          inventory_path = Path(".k-slide-config/production-dependency-inventory.json")
+          inventory = load_dependency_inventory(inventory_path)
+          build_production_sbom(Path.cwd(), Path(".k-slide-config/production-sbom.json"), inventory_path=inventory_path)
+          inventory_hash = dependency_inventory_hash(inventory)
+          sbom_hash = sha256_file(Path(".k-slide-config/production-sbom.json"))
           missing = candidate_completeness(candidate, "PRODUCTION_CERTIFIED")
           summary = {"subject_git_sha": subject, "deployment_fingerprint": candidate_deployment_fingerprint(candidate), "candidate_spec": canonical_candidate_factors(candidate), "candidate_profile": str(candidate_path), "production_evidence_eligible": not missing, "production_candidate_missing": missing}
           out.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
@@ -110,8 +134,10 @@ jobs:
           audited_versions = {item.get("name"): item.get("version") for item in audit_value.get("dependencies", []) if isinstance(item, dict)}
           context = {
               "schema_version": "1.0",
-              "audited_dependency_subject": "constraints-production.txt",
-              "audited_dependency_set_sha256": constraints_hash,
+              "audited_dependency_subject": "production-env",
+              "audited_dependency_set_sha256": inventory_hash,
+              "resolved_dependency_set_sha256": inventory_hash,
+              "production_sbom_sha256": sbom_hash,
               "candidate_constraints_sha256": candidate.get("constraints_sha256"),
               "audited_dependency_names": ["Pillow", "PyMuPDF", "python-pptx", "paddlepaddle", "paddleocr"],
               "constraint_versions": constraint_versions,
@@ -152,7 +178,9 @@ jobs:
             --source semgrep="$RUNNER_TEMP/k-slide-security/semgrep.json" \
             --source scanner_exits="$RUNNER_TEMP/k-slide-security/scanner-exits.json" \
             --source audit_context="$RUNNER_TEMP/k-slide-security/audit-context.json" \
-            --source semgrep_ruleset="$RUNNER_TEMP/k-slide-security/semgrep-production.yml"
+            --source semgrep_ruleset="$RUNNER_TEMP/k-slide-security/semgrep-production.yml" \
+            --source dependency_inventory=".k-slide-config/production-dependency-inventory.json" \
+            --source production_sbom=".k-slide-config/production-sbom.json"
           code=$?
           exit $code
       - name: Upload sanitized security evidence
