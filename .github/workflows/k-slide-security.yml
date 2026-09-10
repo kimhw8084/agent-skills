@@ -30,32 +30,43 @@ jobs:
           set +e
           pip-audit --strict --format json --output "$RUNNER_TEMP/k-slide-security/pip-audit.json"
           code=$?
-          printf '{"pip_audit":%s,"gitleaks":null,"semgrep":null}\n' "$code" > "$RUNNER_TEMP/k-slide-security/scanner-exits.partial.json"
+          printf '%s\n' "$code" > "$RUNNER_TEMP/k-slide-security/pip-audit.exit"
           exit 0
       - name: Secret scan
         run: |
           set +e
           docker run --rm -v "$GITHUB_WORKSPACE:/repo:ro" -v "$RUNNER_TEMP/k-slide-security:/reports" zricethezav/gitleaks:v8.24.2 detect --source=/repo --no-banner --redact --report-format json --report-path /reports/gitleaks.json
           code=$?
-          test -f "$RUNNER_TEMP/k-slide-security/gitleaks.json" || printf '[]\n' > "$RUNNER_TEMP/k-slide-security/gitleaks.json"
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          p = Path(__import__('os').environ['RUNNER_TEMP']) / 'k-slide-security' / 'scanner-exits.partial.json'
-          value = json.loads(p.read_text())
-          value['gitleaks'] = int(__import__('os').environ.get('GITLEAKS_EXIT', '0'))
-          p.write_text(json.dumps(value) + '\n')
-          PY
-          sed -i "s/\"gitleaks\":0/\"gitleaks\":$code/" "$RUNNER_TEMP/k-slide-security/scanner-exits.partial.json"
+          printf '%s\n' "$code" > "$RUNNER_TEMP/k-slide-security/gitleaks.exit"
           exit 0
       - name: Static security scan
         run: |
           set +e
           semgrep --config p/python --error --json --output "$RUNNER_TEMP/k-slide-security/semgrep.json" src evals
           code=$?
-          sed -i "s/\"semgrep\":null/\"semgrep\":$code/" "$RUNNER_TEMP/k-slide-security/scanner-exits.partial.json"
-          cp "$RUNNER_TEMP/k-slide-security/scanner-exits.partial.json" "$RUNNER_TEMP/k-slide-security/scanner-exits.json"
+          printf '%s\n' "$code" > "$RUNNER_TEMP/k-slide-security/semgrep.exit"
           exit 0
+      - name: Assemble scanner exit codes
+        if: always()
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "k-slide-security"
+          exits = {}
+          for name in ("pip-audit", "gitleaks", "semgrep"):
+              path = root / f"{name}.exit"
+              if not path.is_file():
+                  raise SystemExit(f"missing scanner exit-code file: {path.name}")
+              try:
+                  value = int(path.read_text(encoding="utf-8").strip())
+              except (OSError, ValueError) as exc:
+                  raise SystemExit(f"malformed scanner exit-code file: {path.name}") from exc
+              exits[name.replace("-", "_")] = value
+          (root / "scanner-exits.json").write_text(json.dumps(exits, sort_keys=True) + "\n", encoding="utf-8")
+          PY
       - name: Compute deployment identity
         if: always()
         run: |
