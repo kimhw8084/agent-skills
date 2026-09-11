@@ -96,9 +96,11 @@ jobs:
           transport_root="$RUNNER_TEMP/k-slide-private-certification"
           mkdir -p "$transport_root"
           export GH_TOKEN="$KSLIDE_PRIVATE_CERTIFICATION_TOKEN"
+          gh api "repos/$KSLIDE_PRIVATE_CERTIFICATION_REPOSITORY" > "$transport_root/source-repository.json"
           gh api "repos/$KSLIDE_PRIVATE_CERTIFICATION_REPOSITORY/actions/runs/$BUNDLE_RUN_ID" > "$transport_root/run.json"
           gh api "repos/$KSLIDE_PRIVATE_CERTIFICATION_REPOSITORY/actions/runs/$BUNDLE_RUN_ID/artifacts?per_page=100" > "$transport_root/artifacts.json"
           PYTHONPATH=src:. python -m evals.validate_certification_bundle_provenance \
+            --repository-json "$transport_root/source-repository.json" \
             --run-json "$transport_root/run.json" \
             --artifacts-json "$transport_root/artifacts.json" \
             --run-id "$BUNDLE_RUN_ID" \
@@ -106,11 +108,17 @@ jobs:
             --source-repository "$KSLIDE_PRIVATE_CERTIFICATION_REPOSITORY" \
             --workflow-id "$KSLIDE_PRIVATE_CERTIFICATION_WORKFLOW_ID" \
             --workflow-path "$KSLIDE_PRIVATE_CERTIFICATION_WORKFLOW_PATH" \
-            --subject-sha "$GITHUB_SHA" \
+            --target-subject-sha "$GITHUB_SHA" \
             --artifact-sha256 "$BUNDLE_DIGEST" \
             --public-repository "$GITHUB_REPOSITORY" > "$transport_root/provenance.json"
           artifact_id=$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["artifact_id"])' "$transport_root/provenance.json")
-          gh api --output "$transport_root/bundle.zip" "repos/$KSLIDE_PRIVATE_CERTIFICATION_REPOSITORY/actions/artifacts/$artifact_id/zip"
+          PYTHONPATH=src:. python -m evals.download_certification_bundle \
+            --repository "$KSLIDE_PRIVATE_CERTIFICATION_REPOSITORY" \
+            --artifact-id "$artifact_id" \
+            --output "$transport_root/bundle.zip" \
+            --artifact-sha256 "$BUNDLE_DIGEST" \
+            --token-env KSLIDE_PRIVATE_CERTIFICATION_TOKEN \
+            --api-base-url "${GITHUB_API_URL:-https://api.github.com}"
           mv "$transport_root/bundle.zip" "$RUNNER_TEMP/k-slide-certification-bundle.zip"
       - name: Materialize authorized private certification bundle
         if: inputs.certification_bundle_run_id != ''
@@ -121,7 +129,7 @@ jobs:
             --archive "$RUNNER_TEMP/k-slide-certification-bundle.zip" \
             --archive-sha256 "$BUNDLE_DIGEST" \
             --output-root "$GITHUB_WORKSPACE/k-slide" \
-            --subject-sha "$GITHUB_SHA"
+            --target-subject-sha "$GITHUB_SHA"
       - name: Freeze exact production dependency subject
         run: |
           python -m venv "$RUNNER_TEMP/k-slide-production-env"
@@ -210,7 +218,16 @@ jobs:
       - name: Verify candidate-bound OCR asset identity inside the evaluated runtime
         if: inputs.certification_bundle_run_id != ''
         run: |
-          docker run --rm --entrypoint python k-slide-heavy -c 'import json; from pathlib import Path; from k_slide.certification import validate_ocr_asset_manifest; manifest=Path("/opt/k-slide/ocr/manifest.json"); identity=validate_ocr_asset_manifest(manifest, asset_root=manifest.parent); print(json.dumps({"status":"PASS","runtime_verified":True,"manifest_sha256":identity["sha256"],"file_count":identity["file_count"],"files":identity["entries"],"after_engine":True}, sort_keys=True))' > "$RUNNER_TEMP/k-slide-heavy-ocr-asset-context.json"
+          docker run --rm --entrypoint python k-slide-heavy - <<'PY' > "$RUNNER_TEMP/k-slide-heavy-ocr-asset-context.json"
+          import json
+          from pathlib import Path
+          from k_slide.certification import paddle_runtime_configuration, validate_ocr_asset_manifest
+
+          manifest = Path("/opt/k-slide/ocr/manifest.json")
+          identity = validate_ocr_asset_manifest(manifest, asset_root=manifest.parent)
+          configuration = paddle_runtime_configuration(asset_root=manifest.parent, manifest_path=manifest)
+          print(json.dumps({"status": "PASS", "runtime_verified": True, "manifest_sha256": identity["sha256"], "file_count": identity["file_count"], "files": identity["entries"], "paddlex_config": configuration["paddlex_config"], "paddlex_config_sha256": configuration["paddlex_config_sha256"], "offline_assets_required": configuration["offline_assets_required"], "after_engine": True}, sort_keys=True))
+          PY
       - name: Retain heavy dependency proof and derive evidence
         if: always()
         run: |
