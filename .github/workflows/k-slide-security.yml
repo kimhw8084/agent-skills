@@ -12,6 +12,10 @@ on:
         required: false
         default: "k-slide-certification-bundle"
         type: string
+      certification_bundle_sha256:
+        description: "Authoritative SHA-256 digest of the private bundle archive"
+        required: false
+        type: string
   pull_request:
     paths:
       - "k-slide/**"
@@ -19,7 +23,6 @@ on:
 
 permissions:
   contents: read
-  actions: read
 
 jobs:
   security:
@@ -38,21 +41,49 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/k-slide-security"
           cp --preserve=mode security/semgrep-production.yml "$RUNNER_TEMP/k-slide-security/semgrep-production.yml"
-      - name: Download authorized private certification bundle
+      - name: Download and verify authorized private certification bundle
         if: github.event_name == 'workflow_dispatch' && inputs.certification_bundle_run_id != ''
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ inputs.certification_bundle_name }}
-          path: ${{ runner.temp }}/k-slide-security/certification-bundle
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          repository: ${{ github.repository }}
-          run-id: ${{ inputs.certification_bundle_run_id }}
+        env:
+          BUNDLE_RUN_ID: ${{ inputs.certification_bundle_run_id }}
+          BUNDLE_NAME: ${{ inputs.certification_bundle_name }}
+          BUNDLE_DIGEST: ${{ inputs.certification_bundle_sha256 }}
+          KSLIDE_PRIVATE_CERTIFICATION_REPOSITORY: ${{ vars.KSLIDE_PRIVATE_CERTIFICATION_REPOSITORY }}
+          KSLIDE_PRIVATE_CERTIFICATION_WORKFLOW_ID: ${{ vars.KSLIDE_PRIVATE_CERTIFICATION_WORKFLOW_ID }}
+          KSLIDE_PRIVATE_CERTIFICATION_WORKFLOW_PATH: ${{ vars.KSLIDE_PRIVATE_CERTIFICATION_WORKFLOW_PATH }}
+          KSLIDE_PRIVATE_CERTIFICATION_TOKEN: ${{ secrets.KSLIDE_PRIVATE_CERTIFICATION_TOKEN }}
+        run: |
+          set -euo pipefail
+          for required in KSLIDE_PRIVATE_CERTIFICATION_REPOSITORY KSLIDE_PRIVATE_CERTIFICATION_WORKFLOW_ID KSLIDE_PRIVATE_CERTIFICATION_WORKFLOW_PATH KSLIDE_PRIVATE_CERTIFICATION_TOKEN; do
+            test -n "${!required}" || { echo "missing protected private certification transport configuration: $required" >&2; exit 2; }
+          done
+          test -n "$BUNDLE_DIGEST" || { echo "missing immutable certification bundle digest" >&2; exit 2; }
+          transport_root="$RUNNER_TEMP/k-slide-security/private-transport"
+          mkdir -p "$transport_root"
+          export GH_TOKEN="$KSLIDE_PRIVATE_CERTIFICATION_TOKEN"
+          gh api "repos/$KSLIDE_PRIVATE_CERTIFICATION_REPOSITORY/actions/runs/$BUNDLE_RUN_ID" > "$transport_root/run.json"
+          gh api "repos/$KSLIDE_PRIVATE_CERTIFICATION_REPOSITORY/actions/runs/$BUNDLE_RUN_ID/artifacts?per_page=100" > "$transport_root/artifacts.json"
+          PYTHONPATH=src:. python -m evals.validate_certification_bundle_provenance \
+            --run-json "$transport_root/run.json" \
+            --artifacts-json "$transport_root/artifacts.json" \
+            --run-id "$BUNDLE_RUN_ID" \
+            --artifact-name "$BUNDLE_NAME" \
+            --source-repository "$KSLIDE_PRIVATE_CERTIFICATION_REPOSITORY" \
+            --workflow-id "$KSLIDE_PRIVATE_CERTIFICATION_WORKFLOW_ID" \
+            --workflow-path "$KSLIDE_PRIVATE_CERTIFICATION_WORKFLOW_PATH" \
+            --subject-sha "$GITHUB_SHA" \
+            --artifact-sha256 "$BUNDLE_DIGEST" \
+            --public-repository "$GITHUB_REPOSITORY" > "$transport_root/provenance.json"
+          artifact_id=$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["artifact_id"])' "$transport_root/provenance.json")
+          gh api --output "$transport_root/bundle.zip" "repos/$KSLIDE_PRIVATE_CERTIFICATION_REPOSITORY/actions/artifacts/$artifact_id/zip"
+          mv "$transport_root/bundle.zip" "$RUNNER_TEMP/k-slide-security/certification-bundle.zip"
       - name: Materialize authorized private certification bundle
         if: github.event_name == 'workflow_dispatch' && inputs.certification_bundle_run_id != ''
+        env:
+          BUNDLE_DIGEST: ${{ inputs.certification_bundle_sha256 }}
         run: |
           PYTHONPATH=src:. python -m evals.materialize_certification_bundle \
-            --bundle-root "$RUNNER_TEMP/k-slide-security/certification-bundle" \
-            --manifest "$RUNNER_TEMP/k-slide-security/certification-bundle/certification-bundle.json" \
+            --archive "$RUNNER_TEMP/k-slide-security/certification-bundle.zip" \
+            --archive-sha256 "$BUNDLE_DIGEST" \
             --output-root "$GITHUB_WORKSPACE/k-slide" \
             --subject-sha "$GITHUB_SHA"
       - name: Materialize exact production dependency subject
@@ -241,3 +272,9 @@ jobs:
         with:
           name: k-slide-security-evidence
           path: ${{ runner.temp }}/k-slide-security/evidence/
+      - name: Remove private certification inputs
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/k-slide-security/private-transport" "$RUNNER_TEMP/k-slide-security/certification-bundle.zip"
+          rm -f .k-slide-config/production-candidate.json .k-slide-config/termbase.local.json
+          rm -rf ocr
